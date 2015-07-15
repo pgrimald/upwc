@@ -15,10 +15,21 @@ source("upwc_keys.R")
 
 #Update UPWC. This is run AFTER determining the base history.-------------------------------------------------
 
+
 update_next_champion<-function(){
-  #upload the previous results
-  current_champ<-read.csv("current_champ_private.csv",na.strings=c('None'), stringsAsFactors=F, colClasses=c(NA,"Date"))
-  championdata<-read.csv("championdata.csv",stringsAsFactors=F,na.strings=c('None'))
+  #load data
+  if(file.exists("tournament_frame.csv")){
+    past_tournaments<-read.csv("tournament_frame.csv",na.strings = c('None'),stringsAsFactors = F,colClasses = c(NA,NA,NA,"Date",NA,NA,NA,NA,NA))  
+  }else{
+    past_tournaments<-construct_tournament_frame()
+  }
+  if(file.exists("current_champ.csv")){
+    current_champ<-read.csv("current_champ_private.csv",na.strings = c('None'), stringsAsFactors = F, colClasses = c(NA,"Date"))  
+  }else{
+    
+  }
+  
+  championdata<-read.csv("championdata.csv",stringsAsFactors = F,na.strings = c('None'))
   #current_champ is the player number and date won of the current champion. 
   #If there is a date and no champ, that means the champion has expired. The date is the date that the title expired
   
@@ -31,8 +42,7 @@ update_next_champion<-function(){
   #check if there are new tournaments
   if(dim(new_tournaments)[1]>0){
     #get the most recent tournaments
-    new_tournaments<-subset(new_tournaments,new_tournaments$results.event_date==min(new_tournaments$results.event_date))    
-    
+    new_tournaments<-subset(new_tournaments,new_tournaments$results.event_date==min(new_tournaments$results.event_date))        
     #check that there is not more than 1 event for that tournament. If so, choose the one with the largest WPPR value
     if(dim(new_tournaments)[1]>1){
       new_tournaments<-ifpa_get_best_tournament(new_tournaments)
@@ -84,14 +94,72 @@ update_next_champion<-function(){
     if((Sys.Date()-current_champ$date_won)>365){
       
     }else{
-      #the reigning champion has expired
+      #the reigning champion has expired. update the current_champ_private file to reflect expiration date 
+      private_player_info<-list(player_id=NA,date_won=(current_champ$date_won+365))
+      private_df<-data.frame(lapply(private_player_info,function(x) t(data.frame(x))))
+      write.csv(private_df,'current_champ_private.csv',row.names=FALSE)
+      
     }
-    
-        
     return("No new champions found")  
   }
 }
 
+#gets info about a player and records it
+ifpa_record_champ_info<-function(api.key,player.number,date.won){
+  url<-paste("https://api.ifpapinball.com/v1/player/",player.number,"?api_key=",api.key,sep = "")
+  j <- fromJSON(url)
+  name<-paste(j$player$first_name,j$player$last_name)
+  country_code<-j$player$country_code
+  img<-paste("<img src='/img/",country_code,".png'>",sep = "")
+  url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", player.number,"'>", name, "</a>")
+  home_town<-paste(j$player$city,", ",j$player$state,sep = "")
+  rank<-j$player_stats$current_wppr_rank
+  age<-j$player$age
+  
+  #record csv for website
+  player_info<-list(Name=url,Hometown=home_town,Age=age,IFPA_Rank=rank,Held_Since=date.won)
+  df<-data.frame(lapply(player_info,function(x) t(data.frame(x))))
+  write.csv(df,'current_champ.csv',row.names=FALSE)
+  
+  #record csv for future analysis
+  private_player_info<-list(player_id=player.number,date_won=date.won)
+  private_df<-data.frame(lapply(private_player_info,function(x) t(data.frame(x))))
+  write.csv(private_df,'current_champ_private.csv',row.names=FALSE)
+}
+
+#construct datafame of all tournaments. WARNING: this makes about 40 API calls in a short period of time.
+construct_tournament_frame<-function(api.key,start.pos){
+  i<-start.pos
+  results<-ifpa_get_tournaments(api.key,i)
+  repeat{
+    i<-i+250
+    results_next<-ifpa_get_tournaments(api.key,i)
+    if(is.null(dim(results_next))){
+      break
+    }else{
+    results<-rbind(results,results_next)
+    }
+  }
+  results$event_date<-as.Date(results$event_date)
+  write.csv(results,'tournament_frame.csv',row.names=FALSE)
+  return(results)
+}
+
+#return a dataframe of 250 tournaments from a given starting point. start.pos of 1 is the most recent tournament in IFPA records 
+ifpa_get_tournaments<-function(api.key,start.pos){
+  url<-paste("https://api.ifpapinball.com/v1/tournament/list?api_key=",api.key,"&start_pos=",start.pos,"&count=250",sep = "")
+  json_data <- fromJSON(url)
+  total_tournaments<-json_data$total_results
+  if(start.pos>total_tournaments){
+    results<-0
+  }else{
+  tournaments <- json_data["tournament"]
+  tournaments<-data.frame(tournaments)
+  names(tournaments)<-c("tournament_id","tournament_name","event_name","event_date","winner_name","winner_player_id","country_code","country_name","player_count")
+  results<-tournaments
+  }
+  return(results)
+}
 
 #given dataframe of tournament results, return the one with the highest WPPR value
 ifpa_get_best_tournament<-function(api.key,tournaments){
@@ -121,16 +189,6 @@ ifpa_get_tournament_results<-function(api.key,tournament.key){
   return(tournaments)
 }
 
-#return a high level list of tournaments
-ifpa_get_tournaments<-function(api.key,start.pos){
-  url<-paste("https://api.ifpapinball.com/v1/tournament/list?api_key=",api.key,"&start_pos=",start.pos,"&count=250",sep = "")
-  json_data <- fromJSON(url)
-  tournaments <- json_data["tournament"]
-  tournaments<-data.frame(tournaments)
-  names(tournaments)<-c("tournament_id","tournament_name","event_name","event_date","winner_name","winner_player_id","country_code","country_name","player_count")
-  return(tournaments)
-}
-
 #returns a given players entire results history
 ifpa_get_player_tournaments<-function(api.key,player.number){
   url<-paste("https://api.ifpapinball.com/v1/player/",player.number,"/results?api_key=",api.key, sep = "")
@@ -149,38 +207,15 @@ ifpa_get_player_info<-function(api.key,player.number){
   return(player)
 }
 
-#returns info about a player
-ifpa_record_champ_info<-function(api.key,player.number,date.won){
-  url<-paste("https://api.ifpapinball.com/v1/player/",player.number,"?api_key=",api.key,sep = "")
-  j <- fromJSON(url)
-  name<-paste(j$player$first_name,j$player$last_name)
-  country_code<-j$player$country_code
-  img<-paste("<img src='/img/",country_code,".png'>",sep = "")
-  url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", player.number,"'>", name, "</a>")
-  home_town<-paste(j$player$city,", ",j$player$state,sep = "")
-  rank<-j$player_stats$current_wppr_rank
-  age<-j$player$age
-  
-  #record csv for website
-  player_info<-list(Name=url,Hometown=home_town,Age=age,Ifpa_Rank=rank,Held_Since=date.won)
-  df<-data.frame(lapply(player_info,function(x) t(data.frame(x))))
-  write.csv(df,'current_champ.csv',row.names=FALSE)
-  
-  #record csv for future analysis
-  private_player_info<-list(player_id=player.number,date_won=date.won)
-  private_df<-data.frame(lapply(private_player_info,function(x) t(data.frame(x))))
-  
-  
-  write.csv(private_df,'current_champ_private.csv',row.names=FALSE)
-}
-
-
+#get the tournament name for a given tournament id number
 ifpa_get_tournament_name<-function(api.key,tournament.number){
   url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.number,"?api_key=",api.key,sep = "")
   json_data <- fromJSON(url)
   tournament_name<-json_data$tournament$tournament_name
   return(tournament_name)
 }
+
+#Original Analysis --------------------------------------
 
 #constructs the UPWC champ data. This is only to save on the number of API calls. Really only used once. 
 construct_UPWC_champ_data<-function(all_champions){
@@ -324,9 +359,6 @@ find_next_match_2<-function(c,d){
   return(t)
   }
 }
-
-
-
 
 find_next_match<-function(c,d){
   #c==champion number, d==date
