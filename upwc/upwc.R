@@ -12,10 +12,14 @@ source("upwc_keys.R")
 
 #convert dates
 #wppr$tournament_dt<-as.Date(wppr$tournament_dt,format = "%m/%d/%Y")
+
+#number of days until the title expires
+expiration_time<-364
+
 buildEntireHistory<-function(){
-  api.calls<<-0
+  api.calls<<-0  
   startHistory()
-  for(x in 1:19){
+  for(x in 1:20){
     print(updateNextChampion())
   }
 }
@@ -30,7 +34,7 @@ startHistory<-function(){
   if(!(file.exists("tournament_frame.csv"))){
     past_tournaments<<-constructTournamentFrame()
   }else{
-    past_tournaments<<-read.csv("tournament_frame.csv")
+    past_tournaments<<-read.csv("tournament_frame.csv",na.strings = c('None'),stringsAsFactors = F,colClasses = c(NA,NA,NA,"Date",NA,NA,NA,NA,NA)) 
   }
   past_tournaments$event_date<-as.Date(past_tournaments$event_date)
   #records the current_champ table
@@ -69,8 +73,8 @@ updateNextChampion<-function(){
   tournaments<-ifpaGetPlayerTournaments(api.key = api.key,player.number = current_champ$player_id)
   #get subset occurring after title was won
   new_tournaments<-subset(tournaments,tournaments$results.event_date > current_champ$date_won)
-  #check the difference between date won and most recent tournament is no more than 365 days
-  valid_tournament_dates<-((min(new_tournaments$results.event_date) - current_champ$date_won) < 365)
+  #check the difference between date won and most recent tournament is no more than expiration_time days
+  valid_tournament_dates<-((min(new_tournaments$results.event_date) - current_champ$date_won) < expiration_time)
   #check that there are new tournaments
   new_tournaments_found<-(dim(new_tournaments)[1] > 0)
   #check if there are new tournaments
@@ -96,7 +100,7 @@ updateNextChampion<-function(){
     
   }else{
     #no new tournaments were found. This means the champion is either expired, or no longer with us. 
-    if((Sys.Date()-current_champ$date_won) < 365){
+    if((Sys.Date()-current_champ$date_won) < expiration_time){
       #the reigning champion is still valid
       return("No new tournament, champion reigns")
     }else{
@@ -109,24 +113,30 @@ updateNextChampion<-function(){
 }
 
 ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.date){
-  #search past tournaments first, otherwise use api to get results
-  if (tournament.id %in% past_tournaments$tournament_id){
-    tournament<-subset(past_tournaments,past_tournaments$tournament_id==tournament.id)
-    winner.id<-tournament$winner_player_id
-    p_name<-tournament$winner_name
-    country_code<-tournament$country_code
-    tournament.name<-tournament$tournament_name
-  }else{
-  url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.id,"/results?api_key=",api.key,sep = "")
-  t.res<-fromJSON(url)
-  tournament.name<-t.res$tournament$tournament_name
-  t.res<-t.res$tournament$results
-  winner_row<-subset(t.res,t.res$position==1)
-  #extract info
-  winner.id<-winner_row$player_id
-  p_name<-paste(winner_row$first_name,winner_row$last_name)
-  country_code<-winner_row$country_code
-  }
+  #search past tournaments first, otherwise use api to get results. NOTE: this block is currently uncommented because there is a bug in the ifpa api. The actual winner listed in past tournaments is incorrect!!!! 
+#   if (tournament.id %in% past_tournaments$tournament_id){
+#     tournament<-subset(past_tournaments,past_tournaments$tournament_id==tournament.id)
+#     winner.id<-tournament$winner_player_id
+#     p_name<-tournament$winner_name
+#     country_code<-tournament$country_code
+#     tournament.name<-tournament$tournament_name
+#   }else{
+#   url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.id,"/results?api_key=",api.key,sep = "")
+#   t.res<-fromJSON(url)
+#   tournament.name<-t.res$tournament$tournament_name
+#   t.res<-t.res$tournament$results
+#   winner_row<-subset(t.res,t.res$position==1)
+#   #extract info
+#   winner.id<-winner_row$player_id
+#   p_name<-paste(winner_row$first_name,winner_row$last_name)
+#   country_code<-winner_row$country_code
+  #}
+  t.results<-ifpaGetTournamentResults(api.key = api.key,tournament.key = tournament.id)
+  winner.id<-t.results$Id
+  p_name<-t.results$Champion
+  country_code<-t.results$Country
+  tournament.name<-t.results$Tournament_Name
+  
   #construct row 
   img<-paste("<img src='/img/",country_code,".png'>",sep = "")
   name_url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", winner.id,"'>", p_name, "</a>")
@@ -167,7 +177,7 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
 
 #expire champion
 expireChampion<-function(date.won){
-  private_player_info<-list(player_id=NA,date_won=(date.won + 365))
+  private_player_info<-list(player_id=NA,date_won=(date.won + expiration_time))
   private_df<-data.frame(lapply(private_player_info,function(x) t(data.frame(x))))
   private_df$date_won<-as.Date(private_df$date_won)
   write.csv(private_df,'current_champ_private.csv',row.names=FALSE)
@@ -270,16 +280,19 @@ ifpaGetTournamentValue<-function(api.key,tournament.number){
 }
 
 #return tournament results
-# don't think this is used, consider removing
+  # WORK IN PROGRESS
 ifpaGetTournamentResults<-function(api.key,tournament.key){
   url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.key,"?api_key=",api.key,sep = "")
   json_data <- fromJSON(url)
   id<-json_data$tournament$events$winner_player_id
   name<-paste(json_data$tournament$events$winner_first_name,json_data$tournament$events$winner_last_name)
   date<-json_data$tournament$events$event_date
-  results<-list(Ch)
+  player_info<-ifpaGetPlayerInfo(api.key,id)
+  country_code<-player_info$player.country_code
+  tournament_name<-json_data$tournament$tournament_name
+  results<-list(Champion = name,Id = id, Date = date, Country = country_code, Tournament_Name = tournament_name)
   api.calls<<-api.calls+1
-  return(json_data)
+  return(results)
 }
 
 #returns a given players entire results history
@@ -392,7 +405,7 @@ find_valid_dates<-function(d){
   #returns a vector of valid matches that exist within the grace period
   event_dates<-unique(wppr$tournament_dt)
   elapsed_time<-event_dates-d
-  valid_range<-(elapsed_time>0 & elapsed_time<365)
+  valid_range<-(elapsed_time>0 & elapsed_time<expiration_time)
   valid_dates<-subset(event_dates,valid_range)
   return(valid_dates)
 }
@@ -401,7 +414,7 @@ find_concession_match<-function(d){
   #finds the first match to use after the concession of a champion
   event_dates<-unique(wppr$tournament_dt)
   elapsed_time<-event_dates-d
-  valid_range<-(elapsed_time>365)
+  valid_range<-(elapsed_time>expiration_time)
   
   valid_dates<-subset(event_dates,valid_range)
   #determine earliest date
@@ -495,7 +508,7 @@ check_if_champion<-function(c,d){
   result<-F
   
   if ((sum(e %in% valid_events))<1){
-    result<-(range(wppr$tournament_dt)[2]-d)<365
+    result<-(range(wppr$tournament_dt)[2]-d)<expiration_time
     
   }
   return(result)
