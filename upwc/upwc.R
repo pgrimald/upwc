@@ -19,9 +19,12 @@ expiration_time<-364 # number of days until the title expires
 buildEntireHistory<-function(){
   api.calls<<-0  
   startHistory()
-  for(x in 1:20){
+  repeat{
     result<-updateNextChampion()
-    result
+    print(result)
+    if (result == "Up to date"){
+      break
+    }
   }
 }
 
@@ -66,8 +69,9 @@ updateNextChampion<-function(){
     # current_champ$player_id <- next_tournament$winner_player_id
     tournament.id <- next_tournament$tournament_id
     tournament.date<-next_tournament$event_date 
-    ifpaRecordUPWCMatch(api.key = api.key,championdata = championdata, tournament.id=tournament.id, tournament.date = tournament.date)
-    return("Non title match: New winner recorded")
+    result<-ifpaRecordUPWCMatch(api.key = api.key,championdata = championdata, tournament.id=tournament.id, tournament.date = tournament.date)
+    result<-paste("Defaulted Match:",result)
+    return(result)
   }else{
   
   # get all tournaments the player has played in
@@ -83,7 +87,7 @@ updateNextChampion<-function(){
     # check that the tournaments are within one year. otherwise the championship is forfeited
     if(!valid_tournament_dates){
       expireChampion(date.won = current_champ$date_won)
-      return("Title Expired")
+      return("No Match, Title Expired")
     }
     # get the most recent tournaments
     new_tournaments<-subset(new_tournaments,new_tournaments$results.event_date==min(new_tournaments$results.event_date))        
@@ -95,15 +99,16 @@ updateNextChampion<-function(){
     tournament.date<-new_tournaments$results.event_date
     tournament.id<-new_tournaments$results.tournament_id
     
-    ifpaRecordUPWCMatch(api.key = api.key, championdata = championdata, tournament.id = tournament.id, tournament.date = tournament.date)
+    result<-ifpaRecordUPWCMatch(api.key = api.key, championdata = championdata, tournament.id = tournament.id, tournament.date = tournament.date)
     #update_server()
-    return("Title match,Winner Recorded")
+    result<-paste("Title match:",result)
+    return(result)
     
   }else{
     # no new tournaments were found. This means the champion is either expired, or no longer with us. 
     if((Sys.Date()-current_champ$date_won) < expiration_time){
       # the reigning champion is still valid
-      return("No new tournament, champion reigns")
+      return("Up to date")
     }else{
       # the reigning champion has expired. update the current_champ_private file to reflect expiration date 
       expireChampion(date.won = current_champ$date_won)
@@ -133,46 +138,55 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
 #   country_code<-winner_row$country_code
   #}
   t.results<-ifpaGetTournamentResults(api.key = api.key,tournament.key = tournament.id)
-  winner.id<-t.results$Id
-  p_name<-t.results$Champion
-  country_code<-t.results$Country
-  tournament.name<-t.results$Tournament_Name
-  
-  # construct row 
-  img<-paste("<img src='/img/",country_code,".png'>",sep = "")
-  name_url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", winner.id,"'>", p_name, "</a>")
-  tournament_url<-paste("<a href = 'http://www.ifpapinball.com/view_tournament.php?t=", tournament.id,"'>", tournament.name, "</a>",sep = "")
-  new_row<-c(name_url,as.Date(tournament.date),tournament_url)
-  # bind to championdata
-  
-  new_row<-list(Champion = name_url,
-                     Date = tournament.date,
-                     Tournament = tournament_url
-  )
-  new_row<-data.frame(lapply(new_row,function(x) t(data.frame(x))))
-  championdata<-rbind(championdata,new_row)
-  
-  
-  # construct Ranking table. All winners of the UPWC, rank, and the number of times they've won. 
-  f<-table(championdata$Champion)
-  f<-data.frame(f)
-  names(f)<-c("Champion","Wins") 
-  f$Rank<-rank(f$Wins,ties.method = c("min"))#count ranks
-  f$Rank<-dim(f)[1]-(f$Rank-1)#invert ranks
-  f<-arrange(f,-Wins)#sort the table
-  # write results
-  write.csv(championdata,'championdata.csv',row.names=FALSE)
-  # write recent resutls
-  if(dim(championdata)[1] > 10){
-    recent<-championdata[(dim(championdata)[1]-9):(dim(championdata)[1]),]
-    recent<-arrange(recent,desc(Date))
-    write.csv(recent,'recent_results.csv',row.names=FALSE)
+  if (is.null(t.results)){# if null, it means that a clear winner was not found
+    # update the private player info.  The logic here is that the current champ remains, but the date is updated so that this event isn't considered on the next them
+    current_champ<-read.csv("current_champ_private.csv", stringsAsFactors = F, colClasses = c(NA,"Date"))
+    current_champ$date_won<-tournament.date
+    write.csv(current_champ,'current_champ_private.csv',row.names=FALSE)
+    result<-"No Clear Winner! No match recorded."
+  }else{
+    winner.id<-t.results$Id
+    p_name<-t.results$Champion
+    country_code<-t.results$Country
+    tournament.name<-t.results$Tournament_Name
+    
+    # construct row 
+    img<-paste("<img src='/img/",country_code,".png'>",sep = "")
+    name_url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", winner.id,"'>", p_name, "</a>")
+    tournament_url<-paste("<a href = 'http://www.ifpapinball.com/view_tournament.php?t=", tournament.id,"'>", tournament.name, "</a>",sep = "")
+    new_row<-c(name_url,as.Date(tournament.date),tournament_url)
+    # bind to championdata
+    
+    new_row<-list(Champion = name_url,
+                  Date = tournament.date,
+                  Tournament = tournament_url
+    )
+    new_row<-data.frame(lapply(new_row,function(x) t(data.frame(x))))
+    championdata<-rbind(championdata,new_row)
+    
+    
+    # construct Ranking table. All winners of the UPWC, rank, and the number of times they've won. 
+    f<-table(championdata$Champion)
+    f<-data.frame(f)
+    names(f)<-c("Champion","Wins") 
+    f$Rank<-rank(f$Wins,ties.method = c("min"))#count ranks
+    f$Rank<-dim(f)[1]-(f$Rank-1)#invert ranks
+    f<-arrange(f,-Wins)#sort the table
+    # write results
+    write.csv(championdata,'championdata.csv',row.names=FALSE)
+    # write recent resutls
+    if(dim(championdata)[1] > 10){
+      recent<-championdata[(dim(championdata)[1]-9):(dim(championdata)[1]),]
+      recent<-arrange(recent,desc(Date))
+      write.csv(recent,'recent_results.csv',row.names=FALSE)
+    }
+    # write top champs
+    write.csv(f,'top_champs.csv',row.names=FALSE)
+    #record newest champ
+    ifpaRecordChampInfo(api.key = api.key,player.number = winner.id, date.won = tournament.date)
+    result<-"Champion Recorded"
   }
-  # write top champs
-  write.csv(f,'top_champs.csv',row.names=FALSE)
-  #record newest champ
-  ifpaRecordChampInfo(api.key = api.key,player.number = winner.id, date.won = tournament.date)
-  
+  return(result)
   #update_server()
 }
 
@@ -284,14 +298,19 @@ ifpaGetTournamentValue<-function(api.key,tournament.number){
 ifpaGetTournamentResults<-function(api.key,tournament.key){
   url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.key,"?api_key=",api.key,sep = "")
   json_data <- fromJSON(url)
-  id<-json_data$tournament$events$winner_player_id
-  name<-paste(json_data$tournament$events$winner_first_name,json_data$tournament$events$winner_last_name)
-  date<-json_data$tournament$events$event_date
-  player_info<-ifpaGetPlayerInfo(api.key,id)
-  country_code<-player_info$player.country_code
-  tournament_name<-json_data$tournament$tournament_name
-  results<-list(Champion = name,Id = id, Date = date, Country = country_code, Tournament_Name = tournament_name)
   api.calls<<-api.calls+1
+  #determine if there was a winner recorded
+  if (is.null(json_data$tournament$event)){
+    results<-NULL
+  }else{
+    id<-json_data$tournament$events$winner_player_id
+    name<-paste(json_data$tournament$events$winner_first_name,json_data$tournament$events$winner_last_name)
+    date<-json_data$tournament$events$event_date
+    player_info<-ifpaGetPlayerInfo(api.key,id)
+    country_code<-player_info$player.country_code
+    tournament_name<-json_data$tournament$tournament_name
+    results<-list(Champion = name,Id = id, Date = date, Country = country_code, Tournament_Name = tournament_name)
+  }
   return(results)
 }
 
