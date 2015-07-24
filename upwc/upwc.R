@@ -135,7 +135,11 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
     p_name<-t.results$Champion
     country_code<-t.results$Country
     tournament.name<-t.results$Tournament_Name
-    
+    if(!(reigning.champ == "Defaulted")){
+      if(winner.id == reigning.id){
+        reigning.champ <- "Defended"
+      }
+    }
     # construct row 
     img<-paste("<img src='/img/",country_code,".png'>",sep = "")
     name_url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", winner.id,"'>", p_name, "</a>")
