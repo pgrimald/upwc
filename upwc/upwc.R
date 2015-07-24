@@ -171,6 +171,8 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
       recent<-arrange(recent,desc(Date))
       write.csv(recent,'recent_results.csv',row.names=FALSE)
     }
+    #reorder columns
+    f<-f[c(3,1,2)]
     # write top champs
     write.csv(f,'top_champs.csv',row.names=FALSE)
     #record newest champ
@@ -339,4 +341,19 @@ ifpaGetTournamentName<-function(api.key,tournament.number){
   tournament_name<-json_data$tournament$tournament_name
   api.calls<<-api.calls+1
   return(tournament_name)
+}
+
+#WIP--streak analysis. computes the streak that a player goes on
+doStreakAnalysis <- function(){
+  championdata<-read.csv("championdata.csv",stringsAsFactors = F,na.strings = c('None'),colClasses = c(NA,"Date",NA,NA))
+  streak<-c(0)
+  for (i in 2:dim(championdata)[1]){
+    if (championdata$Champion[i]==championdata$Champion[i-1]){
+      streak<-append(streak,streak[i-1]+1)
+    }else{
+      streak<-append(streak,0)
+    }
+  }
+  championdata$streak<-streak
+  championdata
 }
