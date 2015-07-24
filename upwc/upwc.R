@@ -4,10 +4,11 @@ library(RCurl)
 library(jsonlite)
 library(curl)
 setwd("~/Documents/Pinball/UPWC/Data")
-source("upwc_keys.R")
+source("upwc_keys.R") # this file records the api.key variable. you must obtain an apikey from IFPA!
 
 expiration_time<-364 # number of days until the title expires
 
+# This function builds THE ENTIRE UPWC history. It takes several minutes to run.
 buildEntireHistory<-function(){
   api.calls<<-0  
   startHistory()
@@ -19,7 +20,6 @@ buildEntireHistory<-function(){
     }
   }
 }
-
 
 startHistory<-function(){
   # construct initial current_champ_private file. 
@@ -39,13 +39,14 @@ startHistory<-function(){
   # start championdata file
   championdata<-list(Champion = "<img src='/img/US.png'> <a href = 'http://www.ifpapinball.com/player.php?p= 4543 '> Dallas Overturf </a>",
              Date = "1980-10-26",
-             Tournament = "<a href = 'http://www.ifpapinball.com/view_tournament.php?t= 1 '> U.S. Open </a>" 
+             Tournament = "<a href = 'http://www.ifpapinball.com/view_tournament.php?t= 1 '> U.S. Open </a>",
+             Defeated = "Defaulted" 
                )
   championdata<-data.frame(lapply(championdata,function(x) t(data.frame(x))))
   write.csv(championdata,'championdata.csv',row.names=FALSE) 
 }
 
-# Update UPWC.
+# Update UPWC. Call this to update the next champion. It automatically constructs new tables to be used. 
 updateNextChampion<-function(){
   # load data
   past_tournaments<-read.csv("tournament_frame.csv",na.strings = c('None'),stringsAsFactors = F,colClasses = c(NA,NA,NA,"Date",NA,NA,NA,NA,NA))  
@@ -91,7 +92,11 @@ updateNextChampion<-function(){
     tournament.date<-new_tournaments$results.event_date
     tournament.id<-new_tournaments$results.tournament_id
     
-    result<-ifpaRecordUPWCMatch(api.key = api.key, championdata = championdata, tournament.id = tournament.id, tournament.date = tournament.date)
+    result<-ifpaRecordUPWCMatch(api.key = api.key, 
+                                championdata = championdata, 
+                                tournament.id = tournament.id, 
+                                tournament.date = tournament.date,
+                                reigning.id = current_champ$player_id)
     #update_server()
     result<-paste("Title match:",result)
     return(result)
@@ -110,7 +115,14 @@ updateNextChampion<-function(){
   }
 }
 
-ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.date){
+ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.date,reigning.id){
+  # record defeated champion
+  if(missing(reigning.id)){
+    reigning.champ <- "Defaulted"
+  }else{
+    reigning.champ <- ifpaGetPlayerInfo(api.key = api.key, player.number = reigning.id)
+    reigning.champ <- paste(reigning.champ$player.first_name,reigning.champ$player.last_name)
+  }
   t.results<-ifpaGetTournamentResults(api.key = api.key,tournament.key = tournament.id)
   if (is.null(t.results)){# if null, it means that a clear winner was not found
     # update the private player info.  The logic here is that the current champ remains, but the date is updated so that this event isn't considered on the next them
@@ -128,12 +140,13 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
     img<-paste("<img src='/img/",country_code,".png'>",sep = "")
     name_url<-paste(img,"<a href = 'http://www.ifpapinball.com/player.php?p=", winner.id,"'>", p_name, "</a>")
     tournament_url<-paste("<a href = 'http://www.ifpapinball.com/view_tournament.php?t=", tournament.id,"'>", tournament.name, "</a>",sep = "")
-    new_row<-c(name_url,as.Date(tournament.date),tournament_url)
+    #new_row<-c(name_url,as.Date(tournament.date),tournament_url,reigning.champ)
     # bind to championdata
     
     new_row<-list(Champion = name_url,
                   Date = tournament.date,
-                  Tournament = tournament_url
+                  Tournament = tournament_url,
+                  Defeated = reigning.champ
     )
     new_row<-data.frame(lapply(new_row,function(x) t(data.frame(x))))
     championdata<-rbind(championdata,new_row)
@@ -257,6 +270,12 @@ ifpaGetBestTournament<-function(api.key,tournaments){
            }
         )
   tournaments<-subset(tournaments,tournaments$value==max(tournaments$value))
+  # check if there are still more than one tournaments
+  if(dim(tournaments)[1] > 1){
+    # choose a random tournament
+    rand.tournament <- sample(1:dim(tournaments)[1],1)
+    tournaments <- tournaments[rand.tournament,]
+  }
   return(tournaments)
 }
 
