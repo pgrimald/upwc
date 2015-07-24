@@ -160,9 +160,20 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
     f<-table(championdata$Champion)
     f<-data.frame(f)
     names(f)<-c("Champion","Wins") 
-    f$Rank<-rank(f$Wins,ties.method = c("min"))#count ranks
-    f$Rank<-dim(f)[1]-(f$Rank-1)#invert ranks
-    f<-arrange(f,-Wins)#sort the table
+    f$Rank<-rank(f$Wins,ties.method = c("min"))# count ranks
+    f$Rank<-dim(f)[1]-(f$Rank-1)# invert ranks
+    f<-arrange(f,-Wins)# sort the table
+    f<-f[c(3,1,2)]# reorder columns
+    #determine number of appearances
+    f$id<-gsub(pattern = "[^0-9]",replacement = "",x = f$Champion)
+    upwc.match.ids<-gsub(pattern = "[^0-9]",replacement = "",x = championdata$Tournament)
+    f$Appearances<-sapply(X = f$id,
+                          FUN = function(x){
+                            value<-ifpaGetUPWCAppearances(api.key = api.key,player.id = x,upwc.match.ids = upwc.match.ids)
+                          } )
+    f$id <- NULL
+    # write top champs
+    write.csv(f,'top_champs.csv',row.names=FALSE)
     # write results
     write.csv(championdata,'championdata.csv',row.names=FALSE)
     # write recent resutls
@@ -170,11 +181,8 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
       recent<-championdata[(dim(championdata)[1]-9):(dim(championdata)[1]),]
       recent<-arrange(recent,desc(Date))
       write.csv(recent,'recent_results.csv',row.names=FALSE)
-    }
-    #reorder columns
-    f<-f[c(3,1,2)]
-    # write top champs
-    write.csv(f,'top_champs.csv',row.names=FALSE)
+    }  
+
     #record newest champ
     ifpaRecordChampInfo(api.key = api.key,player.number = winner.id, date.won = tournament.date)
     result<-"Champion Recorded"
@@ -356,4 +364,12 @@ doStreakAnalysis <- function(){
   }
   championdata$streak<-streak
   championdata
+}
+
+# returns the number of upwc appearanes for a player.
+ifpaGetUPWCAppearances<-function(api.key,player.id,upwc.match.ids){
+  tournaments <- ifpaGetPlayerTournaments(api.key = api.key,player.number = player.id)
+  tournaments <- tournaments$results.tournament_id
+  appearances <- sum(tournaments %in% upwc.match.ids)
+  return(appearances)
 }
