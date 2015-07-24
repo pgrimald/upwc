@@ -50,7 +50,7 @@ startHistory<-function(){
 updateNextChampion<-function(){
   # load data
   past_tournaments<-read.csv("tournament_frame.csv",na.strings = c('None'),stringsAsFactors = F,colClasses = c(NA,NA,NA,"Date",NA,NA,NA,NA,NA))  
-  championdata<-read.csv("championdata.csv",stringsAsFactors = F,na.strings = c('None'),colClasses = c(NA,"Date",NA))
+  championdata<-read.csv("championdata.csv",stringsAsFactors = F,na.strings = c('None'),colClasses = c(NA,"Date",NA,NA))
   current_champ<-read.csv("current_champ_private.csv", stringsAsFactors = F, colClasses = c(NA,"Date"))
   # current_champ is the player number and date won of the current champion. 
   # If there is a date and no champ, that means the champion has expired. The date is the date that the title expired
