@@ -7,7 +7,7 @@ setwd("~/Documents/Pinball/UPWC/Data")
 source("upwc_keys.R") # this file records the api.key variable. you must obtain an apikey from IFPA!
 
 expiration_time<-364 # number of days until the title expires
-
+api.calls <- 0 # used for recording the number of API Calls. We try not to overload the IFPA server. 
 # This function builds THE ENTIRE UPWC history. It takes several minutes to run.
 buildEntireHistory<-function(){
   api.calls<<-0  
@@ -40,6 +40,7 @@ startHistory<-function(){
   championdata<-list(Champion = "<img src='/img/US.png'> <a href = 'http://www.ifpapinball.com/player.php?p= 4543 '> Dallas Overturf </a>",
              Date = "1980-10-26",
              Tournament = "<a href = 'http://www.ifpapinball.com/view_tournament.php?t= 1 '> U.S. Open </a>",
+             Location = "Hartford, CT, United States",
              Defeated = "Defaulted" 
                )
   championdata<-data.frame(lapply(championdata,function(x) t(data.frame(x))))
@@ -146,10 +147,11 @@ ifpaRecordUPWCMatch <- function(api.key,championdata,tournament.id,tournament.da
     tournament_url<-paste("<a href = 'http://www.ifpapinball.com/view_tournament.php?t=", tournament.id,"'>", tournament.name, "</a>",sep = "")
     #new_row<-c(name_url,as.Date(tournament.date),tournament_url,reigning.champ)
     # bind to championdata
-    
+    tournament_loc<-ifpaGetTournamentLocation(api.key = api.key, tournament.number = tournament.id)
     new_row<-list(Champion = name_url,
                   Date = tournament.date,
                   Tournament = tournament_url,
+                  Location = tournament_loc,
                   Defeated = reigning.champ
     )
     new_row<-data.frame(lapply(new_row,function(x) t(data.frame(x))))
@@ -299,6 +301,19 @@ ifpaGetTournamentValue<-function(api.key,tournament.number){
   json_data <- fromJSON(url)
   api.calls<<-api.calls+1
   return(as.numeric(json_data$tournament$event_value))
+}
+
+# return location of tournament
+ifpaGetTournamentLocation<-function(api.key,tournament.number){
+  url<-paste("https://api.ifpapinball.com/v1/tournament/",tournament.number,"?api_key=",api.key,sep = "")
+  json_data <- fromJSON(url)
+  if (json_data$tournament$city==""){
+  location <- "Unknown"  
+  }else{
+  location<-paste(json_data$tournament$city,json_data$tournament$state,json_data$tournament$country_name,sep = ", ")
+  }
+  api.calls<<-api.calls+1
+  return(location)
 }
 
 # return tournament results
